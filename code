@@ -1,0 +1,109 @@
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lex_rank import LexRankSummarizer
+from sumy.nlp.stemmers import Stemmer
+from sumy.utils import get_stop_words
+from sumy.summarizers.lsa import LsaSummarizer
+from sumy.summarizers.luhn import LuhnSummarizer
+from docx import Document
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize, word_tokenize
+from collections import Counter
+from textblob import TextBlob
+import pytesseract
+from PIL import Image
+# Function to summarize using LexRank
+def find_summary_lexrank(document):
+   parser = PlaintextParser.from_string(document, Tokenizer("english"))
+   summarizer = LexRankSummarizer()
+   summary = summarizer(parser.document, 2)
+   important_summary = ' '.join([str(s) for s in summary[:2]])  # Limit lines
+   return important_summary
+# Function to summarize using LSA
+def find_summary_lsa(document):
+   parser = PlaintextParser.from_string(document, Tokenizer("english"))
+   stemmer = Stemmer("english")
+   summarizer = LsaSummarizer(stemmer)
+   summarizer.stop_words = get_stop_words("english")
+   summary = summarizer(parser.document, 2)
+   important_summary = ' '.join([str(s) for s in summary[:2]])  # Limit lines
+   return important_summary
+# Function to summarize using Luhn
+def find_summary_luhn(document):
+   parser = PlaintextParser.from_string(document, Tokenizer("english"))
+   summarizer = LuhnSummarizer()
+   summary = summarizer(parser.document, 2)
+   important_summary = ' '.join([str(s) for s in summary[:2]])  # Limit lines
+   return important_summary
+# Function to extract topics from text
+def extract_topics_from_text(text):
+   stop_words = set(stopwords.words('english'))
+   sentences = sent_tokenize(text)
+   words_in_sentences = [word_tokenize(sentence.lower()) for sentence in sentences]
+   all_words = [word for words in words_in_sentences for word in words if word.isalnum() and word not in stop_words]
+   word_freq = Counter(all_words)
+   top_keywords = word_freq.most_common(10)  # Adjust the number as needed
+   topics = []
+   topic_sentences = set()  # To keep track of topic sentences already added
+   for keyword, _ in top_keywords:
+       for sentence in sentences:
+           if keyword in sentence.lower() and sentence not in topic_sentences:
+               topics.append((keyword, sentence))
+               topic_sentences.add(sentence)
+               break  # Only include the first occurrence of the keyword in a sentence
+   return topics
+# Function to extract action verbs using TextBlob with limited words
+def extract_action_verbs_with_limit(text, input_words):
+   action_verbs_with_sentences = []
+   blob = TextBlob(text)
+   for sentence in blob.sentences:
+       action_verbs = [word for word, pos in sentence.tags if pos.startswith("VB") and word in input_words]
+       if action_verbs:
+           action_verbs_with_sentences.append((str(sentence), action_verbs))
+   return action_verbs_with_sentences
+# Function to extract text from a Word document, including text from images using OCR
+def extract_text_from_docx(docx_file):
+   doc = Document(docx_file)
+   extracted_text = ""
+   for paragraph in doc.paragraphs:
+       extracted_text += paragraph.text + '\n'
+   for shape in doc.inline_shapes:
+       if shape.type == 3:  # Check if the shape is an image
+           img = Image.open(shape.blob)
+           img_text = pytesseract.image_to_string(img)
+           extracted_text += img_text + "\n"
+   return extracted_text
+if __name__ == "__main__":
+   input_file_path = "input/AI.txt"
+   output_file_path = "output/output.docx"
+   # Read data from input file
+   with open(input_file_path, 'r', encoding="utf-8") as file:
+       document = file.read()
+   # Perform summarization using LexRank, LSA, and Luhn
+   lexrank_summary = find_summary_lexrank(document)
+   lsa_summary = find_summary_lsa(document)
+   luhn_summary = find_summary_luhn(document)
+   # Extract topics from text
+   topics = extract_topics_from_text(document)
+   # Extract action verbs using TextBlob with limited words
+   input_words = ["deliver", "presented", "captured", "acquired"]  # Add your desired words here
+   action_verbs_with_limit = extract_action_verbs_with_limit(document, input_words)
+   # Extract text from Word document, including text from images
+   extracted_text = extract_text_from_docx("input/Img.docx")
+   # Write all output to a single Word document
+   doc = Document()
+   doc.add_heading('Summaries', level=1)
+   doc.add_paragraph("LexRank Summary:")
+   doc.add_paragraph(lexrank_summary)  # Add important summary
+   doc.add_paragraph("LSA Summary:")
+   doc.add_paragraph(lsa_summary)  # Add important summary
+   doc.add_paragraph("Luhn Summary:")
+   doc.add_paragraph(luhn_summary)  # Add important summary
+   doc.add_heading('Topics', level=1)
+   for i, (keyword, sentence) in enumerate(topics, 1):
+       doc.add_paragraph(f"{i}.{sentence.strip()}")
+   doc.add_heading('Action Verbs', level=1)
+   for sentence, action_verbs in action_verbs_with_limit:
+       doc.add_paragraph(f"Sentence: {sentence.strip()}, Action Verbs: {', '.join(action_verbs)}")
+   doc.save(output_file_path)
